@@ -4,17 +4,26 @@ YieldBet = {
     Version = "0.0.1-hackathon",
     Initialized = false,
     State = {
-        user_process: slippage, favorite_stocks, trade_history, order_history, 
-        Users = YieldBet.State.Users or {},
-        StockLastPrice = YieldBet.State.StockLastPrice or {},
-        availableStocks = YieldBet.State.availableStocks or {},
-        BucketStockProcess = id,
-        MockUsdProcess = 'DewqFW5n913av0MEF93A2XVTa66ze1c8qqJgAHWTCmU',
-        Orders = YieldBet.State.Orders or {}, -- order_id: {user_process, ticker, amount, price, side, orderType, status, timestamp, slippage}
-        NextOrderId = YieldBet.State.NextOrderId or 1,
-        UserOrders = YieldBet.State.UserOrders or {} -- user_process: {order_id1, order_id2, ...}
+        -- user_process: slippage, favorite_stocks, trade_history, order_history, 
+        -- Users = YieldBet.State.Users or {},
+        -- StockLastPrice = YieldBet.State.StockLastPrice or {},
+        -- availableStocks = YieldBet.State.availableStocks or {},
+        -- BucketStockProcess = id,
+        -- MockUsdProcess = 'DewqFW5n913av0MEF93A2XVTa66ze1c8qqJgAHWTCmU',
+        -- Orders = YieldBet.State.Orders or {}, -- order_id: {user_process, ticker, amount, price, side, orderType, status, timestamp, slippage}
+        -- NextOrderId = YieldBet.State.NextOrderId or 1,
+        -- UserOrders = YieldBet.State.UserOrders or {} -- user_process: {order_id1, order_id2, ...}
     }
 }
+
+if not YieldBet.State.Users then YieldBet.State.Users = {} end
+if not YieldBet.State.StockLastPrice then YieldBet.State.StockLastPrice = {} end
+if not YieldBet.State.availableStocks then YieldBet.State.availableStocks = {} end
+if not YieldBet.State.Orders then YieldBet.State.Orders = {} end
+if not YieldBet.State.NextOrderId then YieldBet.State.NextOrderId = 1 end
+if not YieldBet.State.UserOrders then YieldBet.State.UserOrders = {} end
+if not YieldBet.State.BucketStockProcess then YieldBet.State.BucketStockProcess = id end
+if not YieldBet.State.MockUsdProcess then YieldBet.State.MockUsdProcess = '-8GDsfPS-1-T5v5-_JGlCBQhepRP-2bCgzESO0zhcIo' end
 
 function getUserOrders(userProcess)
         local userOrderIds = YieldBet.State.UserOrders[userProcess] or {}
@@ -28,10 +37,9 @@ function getUserOrders(userProcess)
         return userOrders
     end
     
-
+-- TODO: go through sell
 function _settleOrder(orderId)
     print('Settling order: ' .. tostring(orderId))
-    -- TODO: YieldBet.State.Order[orderId] supposed that the orderId matches the index in Orders table
     local order = YieldBet.State.Orders[orderId]
     if not order or order.status ~= 'pending' then
         return false, "Order not found or not pending"
@@ -46,46 +54,34 @@ function _settleOrder(orderId)
         })
         return false, "No current price available"
     end
-
-    local executionPrice = order.price
     
     -- For limit orders, check if the order can be executed
     if order.orderType == 'limit' then
-        if order.side == 'buy' and currentPrice > order.price then
-            send({
-                target = order.user_process,
-                success = false,
-                error = "Buy limit order price too low. Current: " .. currentPrice .. ", Limit: " .. order.price
-            })
+        if order.side == 'buy' and currentPrice > order.price * (1 + order.slippage) then
+            print('Buy limit order price too low. Current: ' .. currentPrice .. ', Limit: ' .. order.price)
             return false, "Price condition not met"
-        elseif order.side == 'sell' and currentPrice < order.price then
-            send({
-                target = order.user_process,
-                success = false,
-                error = "Sell limit order price too high. Current: " .. currentPrice .. ", Limit: " .. order.price
-            })
+        elseif order.side == 'sell' and currentPrice < order.price * (1 - order.slippage) then
+            print('Sell limit order price too high. Current: ' .. currentPrice .. ', Limit: ' .. order.price)
             return false, "Price condition not met"
         end
-        executionPrice = order.price
+        executionPrice = currentPrice
     else
-        -- Market order uses current price with slippage already applied
-        executionPrice = order.price
+        -- executionPrice = order.price
+        executionPrice = currentPrice
     end
-
-    local totalCost = order.amount * executionPrice
     
     -- Calculate 0.1% fee
     local feeRate = 0.001 -- 0.1%
-    local stockFee = order.amount * feeRate
-    local moneyFee = totalCost * feeRate
-    
-    -- Net amounts after fee deduction
-    local netStockAmount = order.amount - stockFee
-    local netMoneyAmount = totalCost - moneyFee
 
+    local netStockAmount
+    local netMoneyAmount
+    local fee
     if order.side == 'buy' then
-        -- For buy orders, USD is already transferred to contract via Credit-Notice
-        -- Add stock to user's bucket (minus fee)
+
+        fee = order.transferredAmount * feeRate -- could send to prpfit pool
+        netStockAmount = (order.transferredAmount - fee) / executionPrice
+        netMoneyAmount = order.transferredAmount - fee
+
         send({
             target = YieldBet.State.BucketStockProcess,
             action = 'UserMintStock',
@@ -94,13 +90,16 @@ function _settleOrder(orderId)
             amount = netStockAmount
         })
     else
-        -- Sell: remove stock from user and transfer USD (minus fee)
+        netStockAmount = order.amount
+        netMoneyAmount = netStockAmount * executionPrice
+        fee = netMoneyAmount * feeRate
+        netMoneyAmount = netMoneyAmount - fee
         send({
             target = YieldBet.State.BucketStockProcess,
             action = 'UserBurnStock',
             user_process = order.user_process,
             stock = order.ticker,
-            amount = order.amount -- burn full amount from user
+            amount = order.amount
         })
 
         -- Transfer USD to user (minus fee)
@@ -119,8 +118,7 @@ function _settleOrder(orderId)
     order.executionPrice = executionPrice
     order.executionTime = os.time()
     order.totalCost = totalCost
-    order.stockFee = stockFee
-    order.moneyFee = moneyFee
+    order.moneyFee = fee
     order.netStockAmount = netStockAmount
     order.netMoneyAmount = netMoneyAmount
 
@@ -130,10 +128,10 @@ function _settleOrder(orderId)
         orderId = orderId,
         executionPrice = executionPrice,
         totalCost = totalCost,
-        stockFee = stockFee,
-        moneyFee = moneyFee,
+        moneyFee = fee,
         netStockAmount = netStockAmount,
         netMoneyAmount = netMoneyAmount,
+        side = order.side,
         message = "Order settled successfully"
     })
 
@@ -231,22 +229,6 @@ function YieldBet.init()
             return
         end
 
-        -- For market orders, use current market price with slippage
-        if OrderType == 'market' then
-            local currentPrice = YieldBet.State.StockLastPrice[Ticker]
-            if not currentPrice then
-                send({
-                    target = user_process,
-                    action = 'CreateOrderResponse',
-                    success = false,
-                    error = "No market price available for " .. Ticker
-                })
-                return
-            end
-            -- Apply slippage for sell orders
-            Price = currentPrice * (1 - slippage)
-        end
-
         -- Create sell order
         local orderId = tostring(YieldBet.State.NextOrderId)
         YieldBet.State.NextOrderId = YieldBet.State.NextOrderId + 1
@@ -263,7 +245,7 @@ function YieldBet.init()
             timestamp = msg.timestamp or os.time(),
             slippage = slippage
         }
-
+        
         YieldBet.State.Orders[orderId] = order
 
         -- Track user orders
@@ -316,11 +298,10 @@ function YieldBet.init()
         --     slippage = "0.005",
         --     ticker = "AAPL"
         -- }
-        local OrderType = orderData.ordertype
+        local OrderType = orderData.ordertype -- 'limit' or 'market'
         local Ticker = string.upper(orderData.ticker or "")
-        local Amount = tonumber(orderData.amount)
-        local Price = tonumber(orderData.price)
-        local slippage = tonumber(orderData.slippage) or 0.001
+        local Price = tonumber(orderData.price) -- target price
+        local slippage = tonumber(orderData.slippage) or 0.001 -- slippage percentage
 
         -- Validation for buy order
         if not OrderType or (OrderType ~= 'limit' and OrderType ~= 'market') then
@@ -351,18 +332,9 @@ function YieldBet.init()
             return
         end
 
-        if not Amount or Amount <= 0 then
-            send({
-                target = user_process,
-                success = false,
-                data = "Invalid amount. Must be positive number"
-            })
-            return
-        end
-
         -- For market orders, use current market price with slippage
         if OrderType == 'market' then
-            local currentPrice = YieldBet.State.StockLastPrice[Ticker]
+            currentPrice = YieldBet.State.StockLastPrice[Ticker]
             if not currentPrice then
                 send({
                     target = user_process,
@@ -372,7 +344,6 @@ function YieldBet.init()
                 return
             end
             -- Apply slippage for buy orders
-            Price = currentPrice * (1 + slippage)
         elseif OrderType == 'limit' and (not Price or Price <= 0) then
             send({
                 target = user_process,
@@ -382,36 +353,15 @@ function YieldBet.init()
             return
         end
 
-        -- Check if transferred amount is sufficient for the order
-        local totalCost = Amount * Price
-        if transferAmount < totalCost then
-            send({
-                target = user_process,
-                success = false,
-                data = "Insufficient USD transferred. Required: " .. totalCost .. ", Received: " .. transferAmount
-            })
-
-            -- return the money back
-            send({
-                target = YieldBet.State.MockUsdProcess,
-                action = 'Transfer',
-                tags = {
-                    recipient = user_process,
-                    quantity = tostring(math.floor(transferAmount))
-                }
-            })
-            return
-        end
-
         -- Create buy order
         local orderId = tostring(YieldBet.State.NextOrderId)
         YieldBet.State.NextOrderId = YieldBet.State.NextOrderId + 1
 
+        -- TODO: compare the pending order fields with settlement order fields
         local order = {
             orderId = orderId,
             user_process = user_process,
             ticker = Ticker,
-            amount = Amount,
             price = Price,
             side = 'buy',
             orderType = OrderType,
@@ -652,6 +602,7 @@ function YieldBet.init()
         end
 
         -- Check and settle limit orders that can be executed
+        -- TODO: optimize this
         for orderId, order in pairs(YieldBet.State.Orders) do
             if order.status == 'pending' and order.orderType == 'limit' then
                 local currentPrice = YieldBet.State.StockLastPrice[order.ticker]

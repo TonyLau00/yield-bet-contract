@@ -53,6 +53,8 @@ Handlers.add('Balances', 'Balances', function(msg)
 end)
 
 Handlers.add('Transfer', 'Transfer', function(msg)
+  print('Received Transfer request from ' .. msg.from)
+  print(msg)
   assert(type(msg.tags.recipient) == 'string', 'recipient is required!')
   assert(type(msg.tags.quantity) == 'string', 'quantity is required!')
 
@@ -114,7 +116,8 @@ end)
 
 -- every process can mint once (1000units)
 Handlers.add('Mint', 'Mint', function(msg, env)
-    print('Received Mint request from ' .. msg.from)
+    print('Receddddived Mint request from ' .. msg.from)
+    print(msg)
     if Balances[msg.from] then
         print('User' .. msg.from .. ' has already minted.')
         return false, "Already minted"
@@ -141,7 +144,7 @@ MockYield = {
     Version = "0.0.1-hackathon",
     Initialized = false,
     State = {
-        YieldBetProcess = 'vk3NioK4-tHcuh8iBz9PtcELx2LTHMRciGLXEYW8GEg',
+        YieldBetProcess = 'U3upS58YV3G6gyOcGN8yUDEYI7knoMquGbxbfgatZ9o',
         MockPeriod = 365 * 24 * 60 * 60, -- 1 year in seconds
         MockRate = 0.03, -- 3% yield per period
         MockStake = 10000000, -- 10 million MockUSD
@@ -162,9 +165,9 @@ function MockYield.init()
         if not MockYield.State.YieldBetProcess then
             return false, "YieldBetProcess not set"
         end
-        if msg.from ~= id then
-            return false, "Unauthorized"
-        end
+        -- if msg.from ~= id then
+        --     return false, "Unauthorized"
+        -- end
 
         Balances[id] = Balances[id] - math.floor(MockYield.State.MockGainPerDay)
         if not Balances[MockYield.State.YieldBetProcess] then
