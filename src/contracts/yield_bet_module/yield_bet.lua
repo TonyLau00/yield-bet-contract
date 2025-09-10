@@ -170,7 +170,7 @@ function YieldBet.init()
 
     Handlers.add('CreateOrder', 'CreateOrder', function(msg) 
         local user_process = msg.from
-        local OrderType = msg.orderType
+        local OrderType = msg.ordertype
         local Ticker = string.upper(msg.ticker or "")
         local Amount = tonumber(msg.amount)
         local Price = tonumber(msg.price)
@@ -191,7 +191,6 @@ function YieldBet.init()
         if not OrderType or (OrderType ~= 'limit' and OrderType ~= 'market') then
             send({
                 target = user_process,
-                action = 'CreateOrderResponse',
                 success = false,
                 error = "Invalid order type. Must be 'limit' or 'market'"
             })
@@ -201,7 +200,6 @@ function YieldBet.init()
         if not Ticker or type(Ticker) ~= 'string' or not YieldBet.State.availableStocks[Ticker] then
             send({
                 target = user_process,
-                action = 'CreateOrderResponse',
                 success = false,
                 error = "Invalid ticker or stock not available"
             })
@@ -211,7 +209,6 @@ function YieldBet.init()
         if not Amount or Amount <= 0 then
             send({
                 target = user_process,
-                action = 'CreateOrderResponse',
                 success = false,
                 error = "Invalid amount. Must be positive number"
             })
@@ -221,7 +218,6 @@ function YieldBet.init()
         if OrderType == 'limit' and (not Price or Price <= 0) then
             send({
                 target = user_process,
-                action = 'CreateOrderResponse',
                 success = false,
                 error = "Limit orders require a valid price"
             })
