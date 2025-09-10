@@ -5,25 +5,25 @@ YieldBet = {
     Initialized = false,
     State = {
         -- user_process: slippage, favorite_stocks, trade_history, order_history, 
-        -- Users = YieldBet.State.Users or {},
-        -- StockLastPrice = YieldBet.State.StockLastPrice or {},
-        -- availableStocks = YieldBet.State.availableStocks or {},
-        -- BucketStockProcess = id,
-        -- MockUsdProcess = 'DewqFW5n913av0MEF93A2XVTa66ze1c8qqJgAHWTCmU',
-        -- Orders = YieldBet.State.Orders or {}, -- order_id: {user_process, ticker, amount, price, side, orderType, status, timestamp, slippage}
-        -- NextOrderId = YieldBet.State.NextOrderId or 1,
-        -- UserOrders = YieldBet.State.UserOrders or {} -- user_process: {order_id1, order_id2, ...}
+        Users = YieldBet.State.Users or {},
+        StockLastPrice = YieldBet.State.StockLastPrice or {},
+        availableStocks = YieldBet.State.availableStocks or {},
+        BucketStockProcess = YieldBet.State.BucketStockProcess or id,
+        MockUsdProcess = YieldBet.State.MockUsdProcess or 'DewqFW5n913av0MEF93A2XVTa66ze1c8qqJgAHWTCmU',
+        Orders = YieldBet.State.Orders or {}, -- order_id: {user_process, ticker, amount, price, side, orderType, status, timestamp, slippage}
+        NextOrderId = YieldBet.State.NextOrderId or 1,
+        UserOrders = YieldBet.State.UserOrders or {} -- user_process: {order_id1, order_id2, ...}
     }
 }
 
-if not YieldBet.State.Users then YieldBet.State.Users = {} end
-if not YieldBet.State.StockLastPrice then YieldBet.State.StockLastPrice = {} end
-if not YieldBet.State.availableStocks then YieldBet.State.availableStocks = {} end
-if not YieldBet.State.Orders then YieldBet.State.Orders = {} end
-if not YieldBet.State.NextOrderId then YieldBet.State.NextOrderId = 1 end
-if not YieldBet.State.UserOrders then YieldBet.State.UserOrders = {} end
-if not YieldBet.State.BucketStockProcess then YieldBet.State.BucketStockProcess = id end
-if not YieldBet.State.MockUsdProcess then YieldBet.State.MockUsdProcess = '-8GDsfPS-1-T5v5-_JGlCBQhepRP-2bCgzESO0zhcIo' end
+-- if not YieldBet.State.Users then YieldBet.State.Users = {} end
+-- if not YieldBet.State.StockLastPrice then YieldBet.State.StockLastPrice = {} end
+-- if not YieldBet.State.availableStocks then YieldBet.State.availableStocks = {} end
+-- if not YieldBet.State.Orders then YieldBet.State.Orders = {} end
+-- if not YieldBet.State.NextOrderId then YieldBet.State.NextOrderId = 1 end
+-- if not YieldBet.State.UserOrders then YieldBet.State.UserOrders = {} end
+-- if not YieldBet.State.BucketStockProcess then YieldBet.State.BucketStockProcess = id end
+-- if not YieldBet.State.MockUsdProcess then YieldBet.State.MockUsdProcess = '-8GDsfPS-1-T5v5-_JGlCBQhepRP-2bCgzESO0zhcIo' end
 
 function getUserOrders(userProcess)
         local userOrderIds = YieldBet.State.UserOrders[userProcess] or {}
@@ -181,7 +181,6 @@ function YieldBet.init()
         if Side ~= 'sell' then
             send({
                 target = user_process,
-                action = 'CreateOrderResponse',
                 success = false,
                 error = "CreateOrder action is only for sell orders. Buy orders are created via USD transfer."
             })
@@ -444,13 +443,13 @@ function YieldBet.init()
     end)
 
     Handlers.add('CancelOrder', 'CancelOrder', function(msg) 
-        local orderId = msg.orderId
+        print("Received CancelOrder from " .. msg.from)
+        local orderId = tonumber(msg.orderid)
         local user_process = msg.from
 
         if not orderId then
             send({
                 target = user_process,
-                action = 'CancelOrderResponse',
                 success = false,
                 error = "Order ID required"
             })
@@ -461,17 +460,15 @@ function YieldBet.init()
         if not order then
             send({
                 target = user_process,
-                action = 'CancelOrderResponse',
                 success = false,
                 error = "Order not found"
             })
             return
         end
 
-        if order.user_process ~= user_process then
+        if order.user_process ~= user_process and msg.from ~= id then
             send({
                 target = user_process,
-                action = 'CancelOrderResponse',
                 success = false,
                 error = "Unauthorized to cancel this order"
             })
@@ -481,7 +478,6 @@ function YieldBet.init()
         if order.status ~= 'pending' then
             send({
                 target = user_process,
-                action = 'CancelOrderResponse',
                 success = false,
                 error = "Order is not pending and cannot be cancelled"
             })
@@ -506,7 +502,6 @@ function YieldBet.init()
 
         send({
             target = user_process,
-            action = 'CancelOrderResponse',
             success = true,
             orderId = orderId,
             message = "Order cancelled successfully" .. (order.side == 'buy' and " and USD refunded" or "")
